@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Camera Using CameraX"
+rootProject.name = "CamSave"
 include(":app")

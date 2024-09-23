@@ -7,16 +7,15 @@ import android.content.DialogInterface
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.RectF
+import android.net.Uri
 import android.os.*
 import android.provider.MediaStore
 import android.util.Log
 import android.view.*
-import android.widget.EditText
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.*
-import androidx.camera.core.ImageCapture.OutputFileOptions
 import androidx.camera.core.resolutionselector.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.FallbackStrategy
@@ -32,6 +31,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.coding.camerausingcamerax.databinding.ActivityMainBinding
+import com.google.android.material.textfield.TextInputEditText
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -101,6 +101,11 @@ class MainActivity : AppCompatActivity() {
             bindCameraUserCases()
         }
         mainBinding.changeCameraToVideoIB.setOnClickListener {
+
+            mainBinding.changeCameraToVideoIB.setOnClickListener {
+                Toast.makeText(this, "Essa funcionalidade ainda não existe.", Toast.LENGTH_SHORT).show()
+            }
+            /*
             isPhoto = !isPhoto
             if (isPhoto){
                 mainBinding.changeCameraToVideoIB.setImageResource(R.drawable.ic_photo)
@@ -109,6 +114,7 @@ class MainActivity : AppCompatActivity() {
                 mainBinding.changeCameraToVideoIB.setImageResource(R.drawable.ic_videocam)
                 mainBinding.captureIB.setImageResource(R.drawable.ic_start)
             }
+            */
 
         }
 
@@ -329,7 +335,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             Toast.makeText(
                 this,
-                "Flash is Not Available",
+                "O Flash não está disponivel",
                 Toast.LENGTH_LONG
             ).show()
             mainBinding.flashToggleIB.isEnabled = false
@@ -347,97 +353,94 @@ class MainActivity : AppCompatActivity() {
             imageFolder.mkdir()
         }
 
-        val fileName = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-            .format(System.currentTimeMillis()) + ".jpg"
-
-        val contentValues = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME,fileName)
-            put(MediaStore.Images.Media.MIME_TYPE,"image/jpeg")
-            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P){
-                put(MediaStore.Images.Media.RELATIVE_PATH,"Pictures/Images")
-            }
-        }
-
-        val metadata = ImageCapture.Metadata().apply {
-            isReversedHorizontal = (lensFacing == CameraSelector.LENS_FACING_FRONT)
-        }
-        val outputOption =
-            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
-                OutputFileOptions.Builder(
-                    contentResolver,
-                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                    contentValues
-                ).setMetadata(metadata).build()
-            }else{
-                val imageFile = File(imageFolder, fileName)
-                OutputFileOptions.Builder(imageFile)
-                    .setMetadata(metadata).build()
-            }
-
         captureImage(this)
 
     }
 
 
     private fun captureImage(context: Context) {
-        val builder = AlertDialog.Builder(this)
+        // Cria um arquivo temporário para salvar a imagem
+        val tempFile = File(getOutputDirectory(), "temp_image.jpg")
+
+        // Inicia a captura da imagem
+        val outputOptions = ImageCapture.OutputFileOptions.Builder(tempFile).build()
+
+        imageCapture.takePicture(
+            outputOptions,
+            ContextCompat.getMainExecutor(this),
+            object : ImageCapture.OnImageSavedCallback {
+                override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                    // Exibe o diálogo para nomear a imagem após a captura
+                    showImageNameDialog(context, Uri.fromFile(tempFile))
+                }
+
+                override fun onError(exception: ImageCaptureException) {
+                    Toast.makeText(this@MainActivity, exception.message.toString(), Toast.LENGTH_LONG).show()
+                }
+            }
+        )
+    }
+
+    private fun getOutputDirectory(): File {
+        val mediaDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES) // Utilize o diretório privado da aplicação
+        return if (mediaDir != null && mediaDir.exists()) {
+            mediaDir
+        } else {
+            File(filesDir, "Pictures").apply { mkdirs() } // Cria um diretório se não existir
+        }
+    }
+
+    private fun showImageNameDialog(context: Context, imageUri: Uri) {
+        val builder = AlertDialog.Builder(context)
         builder.setTitle("Nome da Imagem")
 
-        val input = EditText(this)
-        builder.setView(input)
+        // Infla o layout XML
+        val dialogView = layoutInflater.inflate(R.layout.dialog_image_name, null)
+        builder.setView(dialogView)
+
+        // Obtém a referência do EditText
+        val input: TextInputEditText = dialogView.findViewById(R.id.image_name_input)
 
         builder.setPositiveButton("OK") { _, _ ->
             val imageName = input.text.toString()
-            val outputDirectory = getOutputDirectory()
-            val file = File(outputDirectory, "$imageName.jpg")
-            val outputOption = ImageCapture.OutputFileOptions.Builder(file).build()
+            val contentValues = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, "$imageName.jpg")
+                put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES) // ou outra pasta
+            }
 
-            imageCapture.takePicture(
-                outputOption,
-                ContextCompat.getMainExecutor(this),
-                object : ImageCapture.OnImageSavedCallback {
-                    override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                        val message = "Foto salva com sucesso: ${outputFileResults.savedUri}"
+            // Insere a imagem no MediaStore
+            val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
 
-                        AlertDialog.Builder(context)
-                            .setTitle("Sucesso")
-                            .setMessage(message)
-                            .setPositiveButton("Fechar") { dialog, _ -> dialog.dismiss() }
-                            .setNeutralButton("Abrir") { _, _ ->
-                                val fileUri = FileProvider.getUriForFile(
-                                    context,
-                                    "${applicationContext.packageName}.provider",
-                                    file // Usar o arquivo criado
-                                )
-                                val intent = Intent(Intent.ACTION_VIEW).apply {
-                                    setDataAndType(fileUri, "image/*")
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                }
-                                startActivity(intent)
-                            }
-                            .show()
-                    }
-
-                    override fun onError(exception: ImageCaptureException) {
-                        Toast.makeText(this@MainActivity, exception.message.toString(), Toast.LENGTH_LONG).show()
+            if (uri != null) {
+                // Copia a imagem da URI temporária para a URI no MediaStore
+                contentResolver.openInputStream(imageUri)?.use { inputStream ->
+                    contentResolver.openOutputStream(uri)?.use { outputStream ->
+                        inputStream.copyTo(outputStream)
                     }
                 }
-            )
+
+                val message = "Foto salva com sucesso: $uri"
+                AlertDialog.Builder(context)
+                    .setTitle("Sucesso")
+                    .setMessage(message)
+                    .setPositiveButton("Fechar") { dialog, _ -> dialog.dismiss() }
+                    .setNeutralButton("Abrir") { _, _ ->
+                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, "image/*")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        startActivity(intent)
+                    }
+                    .show()
+            } else {
+                Toast.makeText(this, "Erro ao salvar a imagem", Toast.LENGTH_SHORT).show()
+            }
         }
 
         builder.setNegativeButton("Cancelar") { dialog, _ -> dialog.cancel() }
 
         builder.show()
-    }
-
-    private fun getOutputDirectory(): File {
-        val mediaDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
-        val appDir = File(mediaDir, resources.getString(R.string.app_name))
-
-        if (!appDir.exists()) {
-            appDir.mkdirs()
-        }
-        return appDir
     }
 
     private fun setAspectRatio(ratio: String) {
