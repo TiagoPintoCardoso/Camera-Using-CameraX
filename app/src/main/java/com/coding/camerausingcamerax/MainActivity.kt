@@ -2,14 +2,18 @@ package com.coding.camerausingcamerax
 
 
 import android.content.ContentValues
+import android.content.Context
 import android.content.DialogInterface
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.RectF
 import android.os.*
 import android.provider.MediaStore
 import android.util.Log
 import android.view.*
+import android.widget.EditText
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.*
 import androidx.camera.core.ImageCapture.OutputFileOptions
@@ -26,6 +30,7 @@ import androidx.camera.video.VideoRecordEvent
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import com.coding.camerausingcamerax.databinding.ActivityMainBinding
 import java.io.File
 import java.text.SimpleDateFormat
@@ -369,29 +374,70 @@ class MainActivity : AppCompatActivity() {
                     .setMetadata(metadata).build()
             }
 
-        imageCapture.takePicture(
-            outputOption,
-            ContextCompat.getMainExecutor(this),
-            object : ImageCapture.OnImageSavedCallback {
-                override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                    val message = "Photo Capture Succeeded: ${outputFileResults.savedUri}"
-                    Toast.makeText(
-                        this@MainActivity,
-                        message,
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
+        captureImage(this)
 
-                override fun onError(exception: ImageCaptureException) {
-                    Toast.makeText(
-                        this@MainActivity,
-                        exception.message.toString(),
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
+    }
 
-            }
-        )
+
+    private fun captureImage(context: Context) {
+        val builder = AlertDialog.Builder(this)
+        builder.setTitle("Nome da Imagem")
+
+        val input = EditText(this)
+        builder.setView(input)
+
+        builder.setPositiveButton("OK") { _, _ ->
+            val imageName = input.text.toString()
+            val outputDirectory = getOutputDirectory()
+            val file = File(outputDirectory, "$imageName.jpg")
+            val outputOption = ImageCapture.OutputFileOptions.Builder(file).build()
+
+            imageCapture.takePicture(
+                outputOption,
+                ContextCompat.getMainExecutor(this),
+                object : ImageCapture.OnImageSavedCallback {
+                    override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                        val message = "Foto salva com sucesso: ${outputFileResults.savedUri}"
+
+                        AlertDialog.Builder(context)
+                            .setTitle("Sucesso")
+                            .setMessage(message)
+                            .setPositiveButton("Fechar") { dialog, _ -> dialog.dismiss() }
+                            .setNeutralButton("Abrir") { _, _ ->
+                                val fileUri = FileProvider.getUriForFile(
+                                    context,
+                                    "${applicationContext.packageName}.provider",
+                                    file // Usar o arquivo criado
+                                )
+                                val intent = Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(fileUri, "image/*")
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                startActivity(intent)
+                            }
+                            .show()
+                    }
+
+                    override fun onError(exception: ImageCaptureException) {
+                        Toast.makeText(this@MainActivity, exception.message.toString(), Toast.LENGTH_LONG).show()
+                    }
+                }
+            )
+        }
+
+        builder.setNegativeButton("Cancelar") { dialog, _ -> dialog.cancel() }
+
+        builder.show()
+    }
+
+    private fun getOutputDirectory(): File {
+        val mediaDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+        val appDir = File(mediaDir, resources.getString(R.string.app_name))
+
+        if (!appDir.exists()) {
+            appDir.mkdirs()
+        }
+        return appDir
     }
 
     private fun setAspectRatio(ratio: String) {
